@@ -829,6 +829,8 @@ window.addEventListener('load',()=>{
   connectWS();
   window.addEventListener('resize',()=>{if(S.chartData.length)drawChart();});
 });
+
+async function pollPricesREST(){try{const r=await fetch("/api/prices");const data=await r.json();for(const [pair,d] of Object.entries(data)){if(!d||!d.price)continue;S.prices[pair]=d.price;if(pair===S.pair){updatePriceHdr();runIndicators();}}}catch(e){}setTimeout(pollPricesREST,5000);}pollPricesREST();
 </script>
 </body>
 </html>
