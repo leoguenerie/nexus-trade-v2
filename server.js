@@ -47,56 +47,41 @@ function checkReset() {
 }
 
 // ════════════════════════════════════════════════════════════
-// KRAKEN WEBSOCKET PUBLIC — Prix temps réel (GRATUIT, sans clé)
+// KRAKEN REST POLLING — Prix toutes les 5s (compatible Railway)
 // ════════════════════════════════════════════════════════════
+const PAIRS = ['XBTUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'ADAUSD'];
+const PAIR_MAP = {'XXBTZUSD':'XBT/USD','XETHZUSD':'ETH/USD','SOLUSD':'SOL/USD','XXRPZUSD':'XRP/USD','ADAUSD':'ADA/USD'};
+
+async function pollKrakenPrices() {
+  try {
+    const result = await krakenGet('/0/public/Ticker?pair=' + PAIRS.join(','));
+    for (const [key, ticker] of Object.entries(result)) {
+      const pair = PAIR_MAP[key] || key;
+      if (!pair.includes('/')) continue;
+      const price  = parseFloat(ticker.c[0]);
+      const ask    = parseFloat(ticker.a[0]);
+      const bid    = parseFloat(ticker.b[0]);
+      const vol    = parseFloat(ticker.v[1]);
+      const high   = parseFloat(ticker.h[1]);
+      const low    = parseFloat(ticker.l[1]);
+      const open   = parseFloat(ticker.o[1]);
+      const change = ((price - open) / open) * 100;
+      latestPrices[pair] = { price, ask, bid, vol, high, low, change };
+      const payload = JSON.stringify({ type: 'price', pair, price, ask, bid, vol, high, low, change });
+      frontendClients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) client.send(payload);
+      });
+    }
+    console.log('[PRIX] BTC/USD =', latestPrices['XBT/USD']?.price);
+  } catch(e) {
+    console.error('[PRIX ERROR]', e.message);
+  }
+  setTimeout(pollKrakenPrices, 5000);
+}
+
 function connectKrakenWebSocket() {
-  const ws = new WebSocket('wss://ws.kraken.com');
-
-  ws.on('open', () => {
-    console.log('[WS KRAKEN] Connecté — Abonnement aux prix...');
-    // Abonnement aux paires qu'on veut
-    ws.send(JSON.stringify({
-      event: 'subscribe',
-      pair: ['XBT/USD', 'ETH/USD', 'SOL/USD', 'XRP/USD', 'ADA/USD'],
-      subscription: { name: 'ticker' }
-    }));
-  });
-
-  ws.on('message', (data) => {
-    try {
-      const msg = JSON.parse(data);
-      // Les updates de prix arrivent sous forme de tableau
-      if (Array.isArray(msg) && msg[2] === 'ticker') {
-        const pair   = msg[3];  // ex: "XBT/USD"
-        const ticker = msg[1];
-        const price  = parseFloat(ticker.c[0]); // dernier prix
-        const ask    = parseFloat(ticker.a[0]);
-        const bid    = parseFloat(ticker.b[0]);
-        const vol    = parseFloat(ticker.v[1]); // volume 24h
-        const high   = parseFloat(ticker.h[1]);
-        const low    = parseFloat(ticker.l[1]);
-        const open   = parseFloat(ticker.o[1]);
-        const change = ((price - open) / open) * 100;
-
-        latestPrices[pair] = { price, ask, bid, vol, high, low, change };
-
-        // Envoie au frontend via WebSocket
-        const payload = JSON.stringify({ type: 'price', pair, price, ask, bid, vol, high, low, change });
-        frontendClients.forEach(client => {
-          if (client.readyState === WebSocket.OPEN) client.send(payload);
-        });
-      }
-    } catch(e) {}
-  });
-
-  ws.on('close', () => {
-    console.log('[WS KRAKEN] Déconnecté — Reconnexion dans 3s...');
-    setTimeout(connectKrakenWebSocket, 3000); // reconnexion auto
-  });
-
-  ws.on('error', (err) => {
-    console.error('[WS KRAKEN ERROR]', err.message);
-  });
+  console.log('[WS KRAKEN] Connecte - Demarrage polling prix...');
+  pollKrakenPrices();
 }
 
 // ════════════════════════════════════════════════════════════
