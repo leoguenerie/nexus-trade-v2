@@ -627,8 +627,9 @@ async function executeTrade(type,score=3){
     // ── MODE LIVE : vrai ordre Kraken ──────────────────────────
     try {
       // Volume en BTC = montant en $ / prix BTC (minimum 0.0001 BTC)
-      const volume = Math.max(0.0001, (amount / price)).toFixed(5);
-      const krakenPair = S.kpair; // ex: XBTUSD
+      const eurPrice = price / (S.prices['EUR/USD'] || 1.08);
+      const volume = type==='BUY' ? Math.max(0.0001, (amount / eurPrice)).toFixed(5) : (S.realBtc || 0.0001).toFixed(5);
+      const krakenPair = 'XBTEUR'; // utilise EUR
       const orderType = type==='BUY'?'buy':'sell';
 
       addLog(`⏳ Envoi ordre LIVE: ${type} ${volume} ${krakenPair} @ ~$${price.toFixed(0)}...`,'info');
