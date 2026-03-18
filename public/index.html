@@ -298,7 +298,7 @@ const S = {
   pair:'XBT/USD', kpair:'XBTUSD', tf:15,
   prices:{'XBT/USD':67000,'ETH/USD':3500,'SOL/USD':165,'XRP/USD':0.60,'ADA/USD':0.44},
   prevPrices:{}, krakenData:{}, chartData:[],
-  trades:[], pnl:0, portfolio:DEMO_BAL, dailyLoss:0, totalFees:0, openPosition:null,
+  trades:[], pnl:0, portfolio:DEMO_BAL, dailyLoss:0, totalFees:0, openPosition:null, buyTime:0, buyPrice:0,
   ind:{rsi:50,macdHist:'neg',bb:'mid',trend:'NEUTRE',vol:'NORMAL'},
   ws:null,
 };
@@ -307,7 +307,8 @@ const S = {
 function connectWS() {
   if(S.ws && S.ws.readyState===WebSocket.OPEN) return;
   try {
-    S.ws = new WebSocket('ws://localhost:3000');
+    const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  S.ws = new WebSocket(wsProto + '//' + location.host);
     S.ws.onopen = () => {
       S.serverOnline=true; setSrv(true);
       addLog('🟢 Serveur connecté — Prix Kraken temps réel actifs','info');
@@ -321,6 +322,7 @@ function connectWS() {
           updatePriceHdr(); runIndicators();
           addLog('Prix snapshot Kraken reçu — Indicateurs recalculés','info');
         }
+        S.lastPriceUpdate = Date.now();
         if(msg.type==='price'){
           S.prevPrices[msg.pair]=S.prices[msg.pair]||msg.price;
           S.prices[msg.pair]=msg.price; S.krakenData[msg.pair]=msg;
@@ -354,7 +356,7 @@ function updatePriceHdr(){
 // ── OHLC ──────────────────────────────────────────────────────
 async function loadOHLC(){
   try{
-    const r=await fetch(`http://localhost:3000/api/ohlc/${S.kpair}/${S.tf}`);
+    const r=await fetch(`/api/ohlc/${S.kpair}/${S.tf}`);
     if(!r.ok) throw new Error();
     const d=await r.json();
     if(d.candles&&d.candles.length>5){
@@ -524,30 +526,62 @@ function computeScore(R,M,B,T,V){
 }
 
 function getSignal(){
-  const conf=runIndicators();
-  if(!conf)return{action:'ATTENDRE',reason:'Données insuffisantes.',score:0};
+  // PAS de recalcul — utilise directement S.confirmDir mis a jour par runIndicators()
+  const dir=S.confirmDir||'NEUTRAL', score=S.confirmScore||0;
   const minConf=parseInt(document.getElementById('pConf').value);
-  const {rsi:R,macdHist,bb:B,trend:T,vol:V}=S.ind;
-  if(conf.dir==='BUY'&&conf.score>=minConf){
+  const {rsi:R,macdHist,bb:B,trend:T,vol:V}=S.ind||{};
+  if(dir==='BUY'&&score>=minConf){
     const why=[];
-    if(R<40)why.push(`RSI survendu (${R})`);
+    if(R<40)why.push('RSI survendu ('+R+')');
     if(macdHist==='pos')why.push('MACD haussier');
     if(B==='below')why.push('Zone basse Bollinger');
     if(T==='HAUSSIER')why.push('Tendance haussière');
     if(V==='ÉLEVÉ')why.push('Volume fort');
-    return{action:'ACHETER',reason:`[${conf.score}/5] ${why.join(' · ')} → ACHAT`,score:conf.score};
+    if(!why.length)why.push('Signaux haussiers');
+    return{action:'ACHETER',reason:'['+score+'/5] '+why.join(' · ')+' → ACHAT',score};
   }
-  if(conf.dir==='SELL'&&conf.score>=minConf){
+  if(dir==='SELL'&&score>=minConf){
     const why=[];
-    if(R>60)why.push(`RSI suracheté (${R})`);
+    if(R>60)why.push('RSI suracheté ('+R+')');
     if(macdHist==='neg')why.push('MACD baissier');
     if(B==='above')why.push('Zone haute Bollinger');
     if(T==='BAISSIER')why.push('Tendance baissière');
     if(V==='ÉLEVÉ')why.push('Volume fort');
-    return{action:'VENDRE',reason:`[${conf.score}/5] ${why.join(' · ')} → VENTE`,score:conf.score};
+    if(!why.length)why.push('Signaux baissiers');
+    return{action:'VENDRE',reason:'['+score+'/5] '+why.join(' · ')+' → VENTE',score};
   }
-  return{action:'ATTENDRE',reason:`Score ${conf.score}/5 (besoin ${minConf}/5) — Signal insuffisant pour trader`,score:conf.score};
+  return{action:'ATTENDRE',reason:'Score '+score+'/5 (besoin '+minConf+'/5) — Signal insuffisant',score};
 }
+
+// ── Polling REST prix — fallback si WebSocket figé ──────────────
+async function pollPricesREST(){
+  try {
+    const r = await fetch('/api/prices');
+    const data = await r.json();
+    for(const [pair, d] of Object.entries(data)){
+      if(!d || !d.price) continue;
+      S.prevPrices[pair] = S.prices[pair] || d.price;
+      S.prices[pair] = d.price;
+      S.lastPriceUpdate = Date.now();
+      if(pair === S.pair){ updatePriceHdr(); runIndicators(); }
+    }
+  } catch(e){}
+  setTimeout(pollPricesREST, 5000);
+}
+pollPricesREST(); // démarre immédiatement
+
+// ── Watchdog prix — reconnexion auto si figé ─────────────────
+setInterval(()=>{
+  if(!S.lastPriceUpdate) return;
+  const elapsed = (Date.now() - S.lastPriceUpdate) / 1000;
+  if(elapsed > 120 && S.connected){ // 2 minutes sans update
+    addLog('⚠️ Prix figés depuis '+Math.round(elapsed)+'s — reconnexion...','info');
+    S.lastPriceUpdate = Date.now(); // reset pour pas boucler
+    // Reconnecte le WebSocket
+    if(socket) { socket.close(); }
+    setTimeout(connectServer, 2000);
+  }
+}, 30000); // vérifie toutes les 30s
 
 // ── BOT ───────────────────────────────────────────────────────
 function toggleBot(){
@@ -564,7 +598,7 @@ function toggleBot(){
     toast('Bot IA démarré 🧠','ok','🤖');
     addLog(`Bot démarré. Confirmation min: ${document.getElementById('pConf').value}/5. Mode: ${S.mode.toUpperCase()}`,'info');
     runBotCycle();
-    S.botTimer=setInterval(runBotCycle,60000);
+    S.botTimer=setInterval(runBotCycle,30000);
   } else {
     clearInterval(S.botTimer);S.botTimer=null;S.botActive=false;
     orb.className='orb';
@@ -578,46 +612,63 @@ function toggleBot(){
 
 function emergency(){
   if(S.botActive)toggleBot();
-  if(S.serverOnline&&S.mode==='live')fetch('http://localhost:3000/api/cancel-all',{method:'POST'}).catch(()=>{});
+  if(S.serverOnline&&S.mode==='live')fetch('/api/cancel-all',{method:'POST'}).catch(()=>{});
   toast('🛑 Arrêt d\'urgence','warn');addLog('ARRÊT D\'URGENCE.','info');
 }
 
 async function runBotCycle(){
-  if(!S.botActive)return;
-  const maxLoss=parseFloat(document.getElementById('pML').value)||50;
-  if(Math.abs(S.dailyLoss)>=maxLoss){toast('Limite perte atteinte. Bot arrete.','warn');toggleBot();return;}
-  const maxT=parseInt(document.getElementById('pMax').value)||5;
-  if(S.trades.length>=maxT){addLog('Max trades atteint. Bot en pause.','info');toggleBot();return;}
+  if(!S.botActive) return;
 
-  const sig=getSignal();
-  const sEl=document.getElementById('sSig');
-  sEl.textContent=sig.action;
-  sEl.style.color=sig.action==='ACHETER'?'var(--green)':sig.action==='VENDRE'?'var(--red)':'var(--gold)';
-  sEl.style.fontSize=sig.action.length>6?'11px':'14px';
-  document.getElementById('sSigP').textContent=S.pair+' '+sig.score+'/5';
-  addLog(sig.reason, sig.action==='ACHETER'?'buy':sig.action==='VENDRE'?'sell':'hold');
+  // ── Garde-fous ────────────────────────────────────────────
+  const maxLoss = parseFloat(document.getElementById('pML').value)||50;
+  if(Math.abs(S.dailyLoss) >= maxLoss){ toast('Limite perte atteinte','warn'); toggleBot(); return; }
 
-  if(S.mode==='live'){
-    if(sig.action==='ACHETER' && !S.openPosition){
-      executeTrade('BUY', sig.score);
-    } else if(sig.action==='VENDRE' && S.openPosition){
-      executeTrade('SELL', sig.score);
-    } else if(sig.action==='ACHETER' && S.openPosition){
-      const currentPrice2 = S.prices[S.pair] || 0;
-      if(!S.refPrice && currentPrice2 > 0) S.refPrice = currentPrice2;
-      const priceDiff2 = S.refPrice > 0 ? (currentPrice2 - S.refPrice) / S.refPrice * 100 : 0;
-      const sl2 = parseFloat(document.getElementById('pSL').value) || 1.0;
-      const tp2 = parseFloat(document.getElementById('pTP').value) || 1.5;
-      if(priceDiff2 <= -sl2){ addLog('Stop loss -'+Math.abs(priceDiff2).toFixed(2)+'% VENTE','info'); executeTrade('SELL', sig.score); }
-      else if(priceDiff2 >= tp2){ addLog('Take profit +'+priceDiff2.toFixed(2)+'% VENTE','info'); executeTrade('SELL', sig.score); }
-      else { addLog('Position ouverte '+priceDiff2.toFixed(2)+'% | TP:+'+tp2+'% SL:-'+sl2+'%','info'); }
-    } else if(sig.action==='VENDRE' && !S.openPosition){
-      addLog('Pas de BTC - en attente signal ACHAT pour entrer','info');
+  // ── Mise à jour signal ────────────────────────────────────
+  const sig = getSignal();
+  const sEl = document.getElementById('sSig');
+  sEl.textContent = sig.action;
+  sEl.style.color = sig.action==='ACHETER'?'var(--green)':sig.action==='VENDRE'?'var(--red)':'var(--gold)';
+  sEl.style.fontSize = sig.action.length>6?'11px':'14px';
+  document.getElementById('sSigP').textContent = S.pair+' '+sig.score+'/5';
+
+  if(S.mode !== 'live'){ if(sig.action!=='ATTENDRE') executeTrade(sig.action==='ACHETER'?'BUY':'SELL', sig.score); return; }
+
+  // ── MODE LIVE — Logique pro ───────────────────────────────
+  const hasBtc = (S.realBtc || 0) >= 0.0001;
+  const currentPrice = S.prices[S.pair] || 0;
+  const tp = parseFloat(document.getElementById('pTP').value) || 1.5;
+  const sl = parseFloat(document.getElementById('pSL').value) || 1.0;
+
+  // Si on a du BTC → gérer la position (TP/SL en priorité absolue)
+  if(hasBtc){
+    // Initialise le prix de référence si inconnu
+    if(!S.buyPrice || S.buyPrice <= 0){
+      if(!S.refPrice && currentPrice > 0){ S.refPrice = currentPrice; addLog('Prix référence initialisé: $'+currentPrice.toFixed(0),'info'); }
     }
+    const refP = S.buyPrice > 0 ? S.buyPrice : S.refPrice;
+    const pct = refP > 0 ? (currentPrice - refP) / refP * 100 : 0;
+
+    if(pct >= tp){
+      addLog('✅ TAKE PROFIT +'+pct.toFixed(2)+'% → VENTE','info');
+      executeTrade('SELL', 5);
+    } else if(pct <= -sl){
+      addLog('🛡️ STOP LOSS -'+Math.abs(pct).toFixed(2)+'% → VENTE DÉFENSIVE','info');
+      executeTrade('SELL', 5);
+    } else {
+      addLog('📊 Position: '+pct.toFixed(2)+'% | TP: +'+tp+'% | SL: -'+sl+'% | Ref: $'+(refP||0).toFixed(0),'info');
+    }
+    return;
+  }
+
+  // Si pas de BTC → chercher un signal d'entrée
+  if(sig.action === 'ACHETER'){
+    addLog(sig.reason, 'buy');
+    executeTrade('BUY', sig.score);
   } else {
-    if(sig.action!=='ATTENDRE') executeTrade(sig.action==='ACHETER'?'BUY':'SELL', sig.score);
+    addLog('Pas de position — attente signal ACHAT ('+sig.score+'/5)','info');
   }
 }
+
 
 
 async function executeTrade(type,score=3){
@@ -634,14 +685,23 @@ async function executeTrade(type,score=3){
     // ── MODE LIVE : vrai ordre Kraken ──────────────────────────
     try {
       // Volume en BTC = montant en $ / prix BTC (minimum 0.0001 BTC)
-      const eurPrice = price / (S.prices['EUR/USD'] || 1.08);
-      const volume = type==='BUY' ? Math.max(0.0001, (amount / eurPrice)).toFixed(5) : (S.realBtc || 0.0001).toFixed(5);
-      const krakenPair = 'XBTEUR'; // utilise EUR
+      // Paire EUR pour comptes en euros
+      const krakenPair = 'XBTEUR';
+      const eurPrice = S.prices['XBT/USD'] / (S.prices['EUR/USD'] || 1.08);
+      let volume;
+      if(type === 'BUY'){
+        // Achat: on utilise nos euros disponibles
+        const eurBal = parseFloat((document.getElementById('wallet').innerHTML.match(/€([\.\d]+) \(~/) || [])[1] || 6);
+        volume = Math.max(0.0001, (eurBal * 0.95 / eurPrice)).toFixed(5);
+      } else {
+        // Vente: on vend TOUT le BTC qu'on possede (S.realBtc mis a jour par l'API)
+        const btcBal = S.realBtc || 0.0001;
+        volume = (btcBal > 0.0001 ? btcBal : 0.0001).toFixed(5);
+      }
       const orderType = type==='BUY'?'buy':'sell';
+      addLog(`⏳ Envoi ordre LIVE: ${type} ${volume} ${krakenPair} @ ~€${eurPrice.toFixed(0)}...`,'info');
 
-      addLog(`⏳ Envoi ordre LIVE: ${type} ${volume} ${krakenPair} @ ~$${price.toFixed(0)}...`,'info');
-
-      const r = await fetch('http://localhost:3000/api/order', {
+      const r = await fetch('/api/order', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body: JSON.stringify({
@@ -667,8 +727,8 @@ async function executeTrade(type,score=3){
       addLog(`✅ ORDRE LIVE EXÉCUTÉ: ${type} ${volume} BTC @ ~$${price.toFixed(0)} | ID: ${txid} | Frais: ~$${fees.toFixed(3)}`,'info');
 
       // Gestion position ouverte/fermee
-      if(type==='BUY') S.openPosition={price, volume, time:Date.now()};
-      else S.openPosition=null;
+      if(type==='BUY'){ S.openPosition={price, volume, time:Date.now()}; S.buyTime=Date.now(); S.buyPrice=refPrice; }
+      else { S.openPosition=null; S.buyTime=0; S.buyPrice=0; }
       // Enregistre le trade (P&L sera connu apres fermeture position)
       S.trades.unshift({
         time:new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',second:'2-digit'}),
@@ -730,7 +790,7 @@ function applyMode(m){
 
 async function fetchRealBalance(){
   try {
-    const r = await fetch('http://localhost:3000/api/balance');
+    const r = await fetch('/api/balance');
     if(!r.ok) throw new Error();
     const data = await r.json();
     // Kraken retourne les balances par symbole: ZUSD=dollars, XXBT=bitcoin, etc.
@@ -738,6 +798,7 @@ async function fetchRealBalance(){
     const eur  = parseFloat(data.ZEUR || data.EUR || 0);
     const usd  = parseFloat(data.ZUSD || data.USD || 0);
     const xbt  = parseFloat(data.XXBT || data.XBT || 0);
+    S.realBtc = xbt; // Stocke le vrai solde BTC pour le bot
     const eth  = parseFloat(data.XETH || data.ETH || 0);
     const xrp  = parseFloat(data.XXRP || data.XRP || 0);
     const sol  = parseFloat(data.SOL  || 0);
@@ -784,7 +845,7 @@ function closeModal(){document.getElementById('apiModal').classList.remove('show
 function connectApi(){
   const key=document.getElementById('ikey').value.trim(),sec=document.getElementById('isec').value.trim();
   if(!key||!sec){toast('Remplis la clé et le secret','err');return;}
-  fetch('http://localhost:3000/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key,secret:sec,maxLoss:document.getElementById('imaxl').value,maxTrades:10})}).catch(()=>{});
+  fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key,secret:sec,maxLoss:document.getElementById('imaxl').value,maxTrades:10})}).catch(()=>{});
   S.connected=true;closeModal();
   document.getElementById('apiBadge').className='abadge ok';
   document.getElementById('apiTxt').textContent='Kraken connecté';
@@ -837,8 +898,6 @@ window.addEventListener('load',()=>{
   connectWS();
   window.addEventListener('resize',()=>{if(S.chartData.length)drawChart();});
 });
-
-async function pollPricesREST(){try{const r=await fetch("/api/prices");const data=await r.json();for(const [pair,d] of Object.entries(data)){if(!d||!d.price)continue;S.prices[pair]=d.price;if(pair===S.pair){updatePriceHdr();runIndicators();}}}catch(e){}setTimeout(pollPricesREST,5000);}pollPricesREST();
 </script>
 </body>
 </html>
