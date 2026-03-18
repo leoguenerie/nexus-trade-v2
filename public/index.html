@@ -603,7 +603,14 @@ async function runBotCycle(){
     } else if(sig.action==='VENDRE' && S.openPosition){
       executeTrade('SELL', sig.score);
     } else if(sig.action==='ACHETER' && S.openPosition){
-      addLog('Position deja ouverte - attente signal VENTE pour cloturer','info');
+      const currentPrice2 = S.prices[S.pair] || 0;
+      if(!S.refPrice && currentPrice2 > 0) S.refPrice = currentPrice2;
+      const priceDiff2 = S.refPrice > 0 ? (currentPrice2 - S.refPrice) / S.refPrice * 100 : 0;
+      const sl2 = parseFloat(document.getElementById('pSL').value) || 1.0;
+      const tp2 = parseFloat(document.getElementById('pTP').value) || 1.5;
+      if(priceDiff2 <= -sl2){ addLog('Stop loss -'+Math.abs(priceDiff2).toFixed(2)+'% VENTE','info'); executeTrade('SELL', sig.score); }
+      else if(priceDiff2 >= tp2){ addLog('Take profit +'+priceDiff2.toFixed(2)+'% VENTE','info'); executeTrade('SELL', sig.score); }
+      else { addLog('Position ouverte '+priceDiff2.toFixed(2)+'% | TP:+'+tp2+'% SL:-'+sl2+'%','info'); }
     } else if(sig.action==='VENDRE' && !S.openPosition){
       addLog('Pas de BTC - en attente signal ACHAT pour entrer','info');
     }
