@@ -728,7 +728,7 @@ async function executeTrade(type,score=3){
 
       // Gestion position ouverte/fermee
       if(type==='BUY'){ S.openPosition={price, volume, time:Date.now()}; S.buyTime=Date.now(); S.buyPrice=refPrice; }
-      else { S.openPosition=null; S.buyTime=0; S.buyPrice=0; S.refPrice=0; }
+      else { S.openPosition=null; S.buyTime=0; S.buyPrice=0; }
       // Enregistre le trade (P&L sera connu apres fermeture position)
       S.trades.unshift({
         time:new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',second:'2-digit'}),
