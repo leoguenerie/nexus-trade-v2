@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NEXUS TRADE v2</title>
+<title>NEXUS TRADE v3</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Outfit:wght@400;600;700;800;900&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -260,6 +260,9 @@ header{display:flex;align-items:center;justify-content:space-between;padding:12p
             <button class="ptab" onclick="setPair(this,'SOL/USD','SOLUSD')">SOL</button>
             <button class="ptab" onclick="setPair(this,'XRP/USD','XRPUSD')">XRP</button>
             <button class="ptab" onclick="setPair(this,'ADA/USD','ADAUSD')">ADA</button>
+            <button class="ptab" onclick="setPair(this,'DOT/USD','DOTUSD')">DOT</button>
+            <button class="ptab" onclick="setPair(this,'LINK/USD','LINKUSD')">LINK</button>
+            <button class="ptab" onclick="setPair(this,'AVAX/USD','AVAXUSD')">AVAX</button>
           </div>
           <div style="display:flex;align-items:center;gap:10px">
             <div class="phdr"><div class="pbig" id="pBig">—</div><div class="pchg" id="pChg" style="color:var(--muted)">—</div></div>
@@ -295,7 +298,7 @@ const DEMO_BAL = 10000;
 const S = {
   mode:'demo', connected:false, serverOnline:false,
   botActive:false, botTimer:null,
-  pair:'XBT/USD', kpair:'XBTUSD', tf:15,
+  pair:'XBT/USD', kpair:'XBTUSD', tf:15, scannerMode:true,
   prices:{'XBT/USD':67000,'ETH/USD':3500,'SOL/USD':165,'XRP/USD':0.60,'ADA/USD':0.44},
   prevPrices:{}, krakenData:{}, chartData:[],
   trades:[], pnl:0, portfolio:DEMO_BAL, dailyLoss:0, totalFees:0, openPosition:null, buyTime:0, buyPrice:0,
@@ -345,12 +348,14 @@ function setSrv(on){
 
 // ── PRIX ─────────────────────────────────────────────────────
 function updatePriceHdr(){
-  const p=S.prices[S.pair]||0, d=S.krakenData[S.pair], chg=d?d.change:0;
-  document.getElementById('pBig').textContent=p<1?`$${p.toFixed(4)}`:`$${p.toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
-  const el=document.getElementById('pChg');
-  el.textContent=`${chg>=0?'+':''}${(chg||0).toFixed(2)}% 24h`;
-  el.style.color=chg>=0?'var(--green)':'var(--red)';
-  document.title=`${p<1?p.toFixed(4):Math.round(p).toLocaleString()}$ ${S.pair} — NEXUS`;
+  const p = S.prices[S.pair] || 0;
+  const rawChg = S.prices[S.pair]?.change || 0;
+  const chg = Math.abs(rawChg) > 100 ? 0 : rawChg; // filtre les % aberrants
+  document.getElementById('pBig').textContent = p < 1 ? '$'+p.toFixed(4) : '$'+p.toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const el = document.getElementById('pChg');
+  el.textContent = (chg >= 0 ? '+' : '') + chg.toFixed(2) + '% 24h';
+  el.style.color = chg >= 0 ? 'var(--green)' : 'var(--red)';
+  document.title = (p < 1 ? p.toFixed(4) : Math.round(p).toLocaleString()) + '$ ' + S.pair + ' — NEXUS';
 }
 
 // ── OHLC ──────────────────────────────────────────────────────
@@ -618,57 +623,116 @@ function emergency(){
 
 async function runBotCycle(){
   if(!S.botActive) return;
+  checkReset();
 
   // ── Garde-fous ────────────────────────────────────────────
   const maxLoss = parseFloat(document.getElementById('pML').value)||50;
   if(Math.abs(S.dailyLoss) >= maxLoss){ toast('Limite perte atteinte','warn'); toggleBot(); return; }
 
-  // ── Mise à jour signal ────────────────────────────────────
-  const sig = getSignal();
-  const sEl = document.getElementById('sSig');
-  sEl.textContent = sig.action;
-  sEl.style.color = sig.action==='ACHETER'?'var(--green)':sig.action==='VENDRE'?'var(--red)':'var(--gold)';
-  sEl.style.fontSize = sig.action.length>6?'11px':'14px';
-  document.getElementById('sSigP').textContent = S.pair+' '+sig.score+'/5';
+  if(S.mode !== 'live'){
+    const sig = getSignal();
+    const sEl = document.getElementById('sSig');
+    sEl.textContent = sig.action;
+    sEl.style.color = sig.action==='ACHETER'?'var(--green)':sig.action==='VENDRE'?'var(--red)':'var(--gold)';
+    sEl.style.fontSize = sig.action.length>6?'11px':'14px';
+    document.getElementById('sSigP').textContent = S.pair+' '+sig.score+'/5';
+    if(sig.action!=='ATTENDRE') executeTrade(sig.action==='ACHETER'?'BUY':'SELL', sig.score);
+    return;
+  }
 
-  if(S.mode !== 'live'){ if(sig.action!=='ATTENDRE') executeTrade(sig.action==='ACHETER'?'BUY':'SELL', sig.score); return; }
-
-  // ── MODE LIVE — Logique pro ───────────────────────────────
+  // ── MODE LIVE PRO ─────────────────────────────────────────
   const hasBtc = (S.realBtc || 0) >= 0.0001;
   const currentPrice = S.prices[S.pair] || 0;
   const tp = parseFloat(document.getElementById('pTP').value) || 1.5;
   const sl = parseFloat(document.getElementById('pSL').value) || 1.0;
 
-  // Si on a du BTC → gérer la position (TP/SL en priorité absolue)
+  // Si position ouverte → gérer TP/SL en priorité absolue
   if(hasBtc){
-    // Initialise le prix de référence si inconnu
-    if(!S.buyPrice || S.buyPrice <= 0){
-      if(!S.refPrice && currentPrice > 0){ S.refPrice = currentPrice; addLog('Prix référence initialisé: $'+currentPrice.toFixed(0),'info'); }
-    }
+    if(!S.refPrice && currentPrice > 0){ S.refPrice = currentPrice; addLog('Prix ref: $'+currentPrice.toFixed(0),'info'); }
     const refP = S.buyPrice > 0 ? S.buyPrice : S.refPrice;
     const pct = refP > 0 ? (currentPrice - refP) / refP * 100 : 0;
 
+    // Mise à jour affichage signal
+    const sEl = document.getElementById('sSig');
+    sEl.textContent = pct >= 0 ? '+'+pct.toFixed(2)+'%' : pct.toFixed(2)+'%';
+    sEl.style.color = pct >= 0 ? 'var(--green)' : 'var(--red)';
+    sEl.style.fontSize = '11px';
+    document.getElementById('sSigP').textContent = S.pair+' | TP:+'+tp+'% SL:-'+sl+'%';
+
     if(pct >= tp){
-      addLog('✅ TAKE PROFIT +'+pct.toFixed(2)+'% → VENTE','info');
+      addLog('TAKE PROFIT +'+pct.toFixed(2)+'% → VENTE','info');
       executeTrade('SELL', 5);
     } else if(pct <= -sl){
-      addLog('🛡️ STOP LOSS -'+Math.abs(pct).toFixed(2)+'% → VENTE DÉFENSIVE','info');
+      addLog('STOP LOSS -'+Math.abs(pct).toFixed(2)+'% → VENTE DÉFENSIVE','info');
       executeTrade('SELL', 5);
     } else {
-      addLog('📊 Position: '+pct.toFixed(2)+'% | TP: +'+tp+'% | SL: -'+sl+'% | Ref: $'+(refP||0).toFixed(0),'info');
+      addLog('Position: '+pct.toFixed(2)+'% | TP:+'+tp+'% SL:-'+sl+'% | Ref:$'+(refP||0).toFixed(0),'info');
     }
     return;
   }
 
-  // Si pas de BTC → chercher un signal d'entrée
-  if(sig.action === 'ACHETER'){
-    addLog(sig.reason, 'buy');
-    executeTrade('BUY', sig.score);
+  // Pas de position → scanner toutes les paires pour trouver la meilleure
+  const ALL_PAIRS = [
+    {pair:'XBT/USD',kpair:'XBTUSD'},{pair:'ETH/USD',kpair:'ETHUSD'},
+    {pair:'SOL/USD',kpair:'SOLUSD'},{pair:'XRP/USD',kpair:'XRPUSD'},
+    {pair:'ADA/USD',kpair:'ADAUSD'},{pair:'DOT/USD',kpair:'DOTUSD'},
+    {pair:'LINK/USD',kpair:'LINKUSD'},{pair:'AVAX/USD',kpair:'AVAXUSD'}
+  ];
+
+  let bestPair = null, bestScore = 0;
+  const savedPair = S.pair;
+  const savedKpair = S.kpair;
+
+  for(const p of ALL_PAIRS){
+    if(!S.prices[p.pair]) continue;
+    S.pair = p.pair; S.kpair = p.kpair;
+    const sig = getSignal();
+    if(sig.action === 'ACHETER' && sig.score > bestScore){
+      bestScore = sig.score;
+      bestPair = { ...p, sig };
+    }
+  }
+
+  // Restaure la paire affichée
+  S.pair = savedPair; S.kpair = savedKpair;
+
+  const minConf = parseInt(document.getElementById('pConf').value) || 3;
+
+  if(bestPair && bestScore >= minConf){
+    // Change vers la meilleure paire
+    S.pair = bestPair.pair; S.kpair = bestPair.kpair;
+    // Met à jour les boutons visuellement
+    document.querySelectorAll('.ptab').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.ptab').forEach(b => { if(b.textContent === bestPair.kpair.replace('USD','')) b.classList.add('active'); });
+    updatePriceHdr();
+
+    const sEl = document.getElementById('sSig');
+    sEl.textContent = 'ACHETER';
+    sEl.style.color = 'var(--green)';
+    sEl.style.fontSize = '11px';
+    document.getElementById('sSigP').textContent = bestPair.pair+' '+bestScore+'/5';
+
+    addLog('SCANNER: Meilleure opportunité → '+bestPair.pair+' ['+bestScore+'/5]','info');
+    addLog(bestPair.sig.reason, 'buy');
+    executeTrade('BUY', bestScore);
   } else {
-    addLog('Pas de position — attente signal ACHAT ('+sig.score+'/5)','info');
+    // Aucune opportunité — affiche le signal de la paire courante
+    S.pair = savedPair; S.kpair = savedKpair;
+    const sig = getSignal();
+    const sEl = document.getElementById('sSig');
+    sEl.textContent = sig.action;
+    sEl.style.color = sig.action==='ACHETER'?'var(--green)':sig.action==='VENDRE'?'var(--red)':'var(--gold)';
+    sEl.style.fontSize = sig.action.length>6?'11px':'14px';
+    document.getElementById('sSigP').textContent = S.pair+' '+sig.score+'/5';
+    addLog('SCANNER: Aucune opportunité (meilleur score: '+bestScore+'/5)','info');
   }
 }
 
+function checkReset(){
+  const today = new Date().toDateString();
+  if(!S._lastDay){ S._lastDay = today; return; }
+  if(S._lastDay !== today){ S.dailyLoss = 0; S._lastDay = today; addLog('Compteurs remis à zéro','info'); }
+}
 
 
 async function executeTrade(type,score=3){
@@ -685,9 +749,15 @@ async function executeTrade(type,score=3){
     // ── MODE LIVE : vrai ordre Kraken ──────────────────────────
     try {
       // Volume en BTC = montant en $ / prix BTC (minimum 0.0001 BTC)
-      // Paire EUR pour comptes en euros
-      const krakenPair = 'XBTEUR';
-      const eurPrice = S.prices['XBT/USD'] / (S.prices['EUR/USD'] || 1.08);
+      // Paire EUR dynamique selon la crypto tradée
+      const pairMap = {
+        'XBT/USD':'XBTEUR','ETH/USD':'ETHEUR','SOL/USD':'SOLEUR',
+        'XRP/USD':'XRPEUR','ADA/USD':'ADAEUR','DOT/USD':'DOTEUR',
+        'LINK/USD':'LINKEUR','AVAX/USD':'AVAXEUR'
+      };
+      const krakenPair = pairMap[S.pair] || 'XBTEUR';
+      const eurRate = S.prices['EUR/USD'] || 1.08;
+      const eurPrice = price / eurRate;
       let volume;
       if(type === 'BUY'){
         // Achat: on utilise nos euros disponibles
@@ -728,7 +798,7 @@ async function executeTrade(type,score=3){
 
       // Gestion position ouverte/fermee
       if(type==='BUY'){ S.openPosition={price, volume, time:Date.now()}; S.buyTime=Date.now(); S.buyPrice=refPrice; }
-      else { S.openPosition=null; S.buyTime=0; S.buyPrice=0; }
+      else { S.openPosition=null; S.buyTime=0; S.buyPrice=0; S.refPrice=0; }
       // Enregistre le trade (P&L sera connu apres fermeture position)
       S.trades.unshift({
         time:new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',second:'2-digit'}),
@@ -840,12 +910,41 @@ async function fetchRealBalance(){
 }
 
 // ── API ───────────────────────────────────────────────────────
+function sendApiConfig(key,sec){
+  const maxLoss = document.getElementById('imaxl') ? document.getElementById('imaxl').value : 50;
+  fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({key,secret:sec,maxLoss,maxTrades:20})
+  }).catch(()=>{});
+}
+
+// Auto-reconnexion API si clés sauvegardées
+function autoReconnectApi(){
+  try{
+    const k=sessionStorage.getItem('nk'), s=sessionStorage.getItem('ns');
+    if(k&&s){ sendApiConfig(k,s); S.connected=true; S.savedKey=k; S.savedSec=s;
+      document.getElementById('apiBadge').className='abadge ok';
+      const kEl=document.getElementById('ikey'); if(kEl) kEl.value=k;
+      addLog('API reconnectée automatiquement','info');
+      fetchRealBalance();
+    }
+  }catch(e){}
+}
+
+// Reconnexion automatique toutes les 5 minutes pour garder l'API active
+setInterval(()=>{
+  if(S.connected && S.savedKey){
+    sendApiConfig(S.savedKey, S.savedSec);
+  }
+}, 300000);
+
 function openModal(){document.getElementById('apiModal').classList.add('show');}
 function closeModal(){document.getElementById('apiModal').classList.remove('show');}
 function connectApi(){
   const key=document.getElementById('ikey').value.trim(),sec=document.getElementById('isec').value.trim();
   if(!key||!sec){toast('Remplis la clé et le secret','err');return;}
-  fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key,secret:sec,maxLoss:document.getElementById('imaxl').value,maxTrades:10})}).catch(()=>{});
+  // Sauvegarde les clés pour reconnexion automatique
+  try{ sessionStorage.setItem('nk',key); sessionStorage.setItem('ns',sec); }catch(e){}
+  sendApiConfig(key,sec);
   S.connected=true;closeModal();
   document.getElementById('apiBadge').className='abadge ok';
   document.getElementById('apiTxt').textContent='Kraken connecté';
@@ -894,8 +993,9 @@ function setTf(el,tf){document.querySelectorAll('.tf').forEach(b=>b.classList.re
 
 window.addEventListener('load',()=>{
   genFake();drawChart();
-  addLog('NEXUS TRADE v2 — Connexion au serveur en cours...','info');
+  addLog('NEXUS TRADE v3 — Connexion au serveur en cours...','info');
   connectWS();
+  setTimeout(autoReconnectApi, 2000); // Auto-reconnexion API
   window.addEventListener('resize',()=>{if(S.chartData.length)drawChart();});
 });
 </script>
