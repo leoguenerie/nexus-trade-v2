@@ -910,6 +910,22 @@ async function fetchRealBalance(){
 }
 
 // ── API ───────────────────────────────────────────────────────
+async function checkServerApiStatus(){
+  // Verifie si le serveur Railway a deja les cles API (via variables d'env)
+  try {
+    const r = await fetch('/api/health');
+    const data = await r.json();
+    if(data.apiConfigured && !S.connected){
+      S.connected = true;
+      document.getElementById('apiBadge').className = 'abadge ok';
+      addLog('API Kraken detectee sur le serveur Railway', 'info');
+      fetchRealBalance();
+      // Ferme la modal si ouverte
+      closeModal();
+    }
+  } catch(e) {}
+}
+
 function sendApiConfig(key,sec){
   const maxLoss = document.getElementById('imaxl') ? document.getElementById('imaxl').value : 50;
   fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -996,6 +1012,7 @@ window.addEventListener('load',()=>{
   addLog('NEXUS TRADE v3 — Connexion au serveur en cours...','info');
   connectWS();
   setTimeout(autoReconnectApi, 2000); // Auto-reconnexion API
+  setTimeout(checkServerApiStatus, 3000); // Verifie si API deja configuree sur Railway
   window.addEventListener('resize',()=>{if(S.chartData.length)drawChart();});
 });
 </script>
