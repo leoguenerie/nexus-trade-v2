@@ -625,11 +625,11 @@ async function runBotCycle(){
   if(!S.botActive) return;
   checkReset();
 
-  // ── Garde-fous ────────────────────────────────────────────
   const maxLoss = parseFloat(document.getElementById('pML').value)||50;
   if(Math.abs(S.dailyLoss) >= maxLoss){ toast('Limite perte atteinte','warn'); toggleBot(); return; }
 
   if(S.mode !== 'live'){
+    // DEMO: trade sur la paire selectionnee
     const sig = getSignal();
     const sEl = document.getElementById('sSig');
     sEl.textContent = sig.action;
@@ -640,38 +640,7 @@ async function runBotCycle(){
     return;
   }
 
-  // ── MODE LIVE PRO ─────────────────────────────────────────
-  const hasBtc = (S.realBtc || 0) >= 0.0001;
-  const currentPrice = S.prices[S.pair] || 0;
-  const tp = parseFloat(document.getElementById('pTP').value) || 1.5;
-  const sl = parseFloat(document.getElementById('pSL').value) || 1.0;
-
-  // Si position ouverte → gérer TP/SL en priorité absolue
-  if(hasBtc){
-    if(!S.refPrice && currentPrice > 0){ S.refPrice = currentPrice; addLog('Prix ref: $'+currentPrice.toFixed(0),'info'); }
-    const refP = S.buyPrice > 0 ? S.buyPrice : S.refPrice;
-    const pct = refP > 0 ? (currentPrice - refP) / refP * 100 : 0;
-
-    // Mise à jour affichage signal
-    const sEl = document.getElementById('sSig');
-    sEl.textContent = pct >= 0 ? '+'+pct.toFixed(2)+'%' : pct.toFixed(2)+'%';
-    sEl.style.color = pct >= 0 ? 'var(--green)' : 'var(--red)';
-    sEl.style.fontSize = '11px';
-    document.getElementById('sSigP').textContent = S.pair+' | TP:+'+tp+'% SL:-'+sl+'%';
-
-    if(pct >= tp){
-      addLog('TAKE PROFIT +'+pct.toFixed(2)+'% → VENTE','info');
-      executeTrade('SELL', 5);
-    } else if(pct <= -sl){
-      addLog('STOP LOSS -'+Math.abs(pct).toFixed(2)+'% → VENTE DÉFENSIVE','info');
-      executeTrade('SELL', 5);
-    } else {
-      addLog('Position: '+pct.toFixed(2)+'% | TP:+'+tp+'% SL:-'+sl+'% | Ref:$'+(refP||0).toFixed(0),'info');
-    }
-    return;
-  }
-
-  // Pas de position → scanner toutes les paires pour trouver la meilleure
+  // ── MODE LIVE PRO — Scanner toutes les paires ─────────────
   const ALL_PAIRS = [
     {pair:'XBT/USD',kpair:'XBTUSD'},{pair:'ETH/USD',kpair:'ETHUSD'},
     {pair:'SOL/USD',kpair:'SOLUSD'},{pair:'XRP/USD',kpair:'XRPUSD'},
@@ -679,11 +648,38 @@ async function runBotCycle(){
     {pair:'LINK/USD',kpair:'LINKUSD'},{pair:'AVAX/USD',kpair:'AVAXUSD'}
   ];
 
-  let bestPair = null, bestScore = 0;
-  const savedPair = S.pair;
-  const savedKpair = S.kpair;
+  const tp = parseFloat(document.getElementById('pTP').value) || 1.5;
+  const sl = parseFloat(document.getElementById('pSL').value) || 1.0;
+  const minConf = parseInt(document.getElementById('pConf').value) || 3;
+  const savedPair = S.pair, savedKpair = S.kpair;
 
+  if(!S.positions) S.positions = {};
+
+  // 1. Gerer les positions ouvertes (TP/SL)
   for(const p of ALL_PAIRS){
+    const pos = S.positions[p.pair];
+    if(!pos) continue;
+    const currentPrice = S.prices[p.pair] || 0;
+    if(!currentPrice) continue;
+    const pct = (currentPrice - pos.price) / pos.price * 100;
+    if(pct >= tp){
+      S.pair = p.pair; S.kpair = p.kpair;
+      addLog('TP +'+pct.toFixed(2)+'% → VENTE '+p.pair,'info');
+      await executeTrade('SELL', 5);
+    } else if(pct <= -sl){
+      S.pair = p.pair; S.kpair = p.kpair;
+      addLog('SL -'+Math.abs(pct).toFixed(2)+'% → VENTE '+p.pair,'info');
+      await executeTrade('SELL', 5);
+    }
+  }
+
+  // Restaure paire affichee
+  S.pair = savedPair; S.kpair = savedKpair;
+
+  // 2. Chercher nouvelles opportunites sur paires sans position
+  let bestPair = null, bestScore = 0;
+  for(const p of ALL_PAIRS){
+    if(S.positions[p.pair]) continue; // deja en position sur cette paire
     if(!S.prices[p.pair]) continue;
     S.pair = p.pair; S.kpair = p.kpair;
     const sig = getSignal();
@@ -693,40 +689,34 @@ async function runBotCycle(){
     }
   }
 
-  // Restaure la paire affichée
+  // Restaure paire affichee
   S.pair = savedPair; S.kpair = savedKpair;
 
-  const minConf = parseInt(document.getElementById('pConf').value) || 3;
+  // Mise a jour affichage signal
+  const sEl = document.getElementById('sSig');
+  const openCount = Object.keys(S.positions).length;
 
   if(bestPair && bestScore >= minConf){
-    // Change vers la meilleure paire
     S.pair = bestPair.pair; S.kpair = bestPair.kpair;
-    // Met à jour les boutons visuellement
-    document.querySelectorAll('.ptab').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.ptab').forEach(b => { if(b.textContent === bestPair.kpair.replace('USD','')) b.classList.add('active'); });
-    updatePriceHdr();
-
-    const sEl = document.getElementById('sSig');
-    sEl.textContent = 'ACHETER';
-    sEl.style.color = 'var(--green)';
-    sEl.style.fontSize = '11px';
+    sEl.textContent = 'ACHETER'; sEl.style.color = 'var(--green)'; sEl.style.fontSize = '11px';
     document.getElementById('sSigP').textContent = bestPair.pair+' '+bestScore+'/5';
-
-    addLog('SCANNER: Meilleure opportunité → '+bestPair.pair+' ['+bestScore+'/5]','info');
-    addLog(bestPair.sig.reason, 'buy');
-    executeTrade('BUY', bestScore);
+    addLog('SCANNER → '+bestPair.pair+' ['+bestScore+'/5] '+bestPair.sig.reason,'info');
+    await executeTrade('BUY', bestScore);
+    // Met a jour les boutons visuellement
+    document.querySelectorAll('.ptab').forEach(b => {
+      const pname = b.textContent;
+      b.classList.toggle('active', bestPair.kpair.startsWith(pname) || bestPair.pair.startsWith(pname));
+    });
+    updatePriceHdr();
   } else {
-    // Aucune opportunité — affiche le signal de la paire courante
-    S.pair = savedPair; S.kpair = savedKpair;
-    const sig = getSignal();
-    const sEl = document.getElementById('sSig');
-    sEl.textContent = sig.action;
-    sEl.style.color = sig.action==='ACHETER'?'var(--green)':sig.action==='VENDRE'?'var(--red)':'var(--gold)';
-    sEl.style.fontSize = sig.action.length>6?'11px':'14px';
-    document.getElementById('sSigP').textContent = S.pair+' '+sig.score+'/5';
-    addLog('SCANNER: Aucune opportunité (meilleur score: '+bestScore+'/5)','info');
+    sEl.textContent = openCount > 0 ? openCount+' pos.' : 'ATTENTE';
+    sEl.style.color = openCount > 0 ? 'var(--gold)' : 'var(--muted)';
+    sEl.style.fontSize = '11px';
+    document.getElementById('sSigP').textContent = 'Scanner: '+bestScore+'/5 max';
+    addLog('Scanner: '+openCount+' positions | meilleur signal: '+bestScore+'/5','info');
   }
 }
+
 
 function checkReset(){
   const today = new Date().toDateString();
@@ -760,13 +750,15 @@ async function executeTrade(type,score=3){
       const eurPrice = price / eurRate;
       let volume;
       if(type === 'BUY'){
-        // Achat: on utilise nos euros disponibles
-        const eurBal = parseFloat((document.getElementById('wallet').innerHTML.match(/€([\.\d]+) \(~/) || [])[1] || 6);
-        volume = Math.max(0.0001, (eurBal * 0.95 / eurPrice)).toFixed(5);
+        // Achat: utilise exactement la mise configuree en $
+        const amountEur = amount / (S.prices['EUR/USD'] || 1.08);
+        volume = Math.max(0.0001, (amountEur / eurPrice)).toFixed(5);
       } else {
-        // Vente: on vend TOUT le BTC qu'on possede (S.realBtc mis a jour par l'API)
-        const btcBal = S.realBtc || 0.0001;
-        volume = (btcBal > 0.0001 ? btcBal : 0.0001).toFixed(5);
+        // Vente: vend le volume correspondant a la mise
+        // Utilise S.positions pour savoir combien on a acheté sur cette paire
+        const pos = S.positions && S.positions[S.pair];
+        const posVol = pos ? pos.volume : (S.realBtc || 0.0001);
+        volume = (parseFloat(posVol) > 0.0001 ? parseFloat(posVol) : 0.0001).toFixed(5);
       }
       const orderType = type==='BUY'?'buy':'sell';
       addLog(`⏳ Envoi ordre LIVE: ${type} ${volume} ${krakenPair} @ ~€${eurPrice.toFixed(0)}...`,'info');
@@ -796,9 +788,15 @@ async function executeTrade(type,score=3){
       toast(`${type==='BUY'?'🟢':'🔴'} ORDRE RÉEL PASSÉ — ${type} ${volume} BTC — ID: ${txid}`,'ok','⚡');
       addLog(`✅ ORDRE LIVE EXÉCUTÉ: ${type} ${volume} BTC @ ~$${price.toFixed(0)} | ID: ${txid} | Frais: ~$${fees.toFixed(3)}`,'info');
 
-      // Gestion position ouverte/fermee
-      if(type==='BUY'){ S.openPosition={price, volume, time:Date.now()}; S.buyTime=Date.now(); S.buyPrice=refPrice; }
-      else { S.openPosition=null; S.buyTime=0; S.buyPrice=0; S.refPrice=0; }
+      // Gestion multi-positions par paire
+      if(!S.positions) S.positions = {};
+      if(type==='BUY'){
+        S.positions[S.pair] = {price: refPrice || price, volume, time: Date.now()};
+        S.buyTime=Date.now(); S.buyPrice=refPrice || price;
+      } else {
+        delete S.positions[S.pair];
+        S.buyTime=0; S.buyPrice=0; S.refPrice=0;
+      }
       // Enregistre le trade (P&L sera connu apres fermeture position)
       S.trades.unshift({
         time:new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',second:'2-digit'}),
