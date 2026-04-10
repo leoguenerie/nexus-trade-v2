@@ -791,17 +791,11 @@ async function executeTrade(type,score=3){
       // Gestion multi-positions par paire
       if(!S.positions) S.positions = {};
       if(type==='BUY'){
-        S.positions[S.pair] = {price: price, volume, time: Date.now()};
-        S.buyTime=Date.now(); S.buyPrice=price;
-        // Sauvegarde sur le serveur
-        fetch('/api/positions',{method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({pair:S.pair,price,volume,action:'open'})});
+        S.positions[S.pair] = {price: refPrice || price, volume, time: Date.now()};
+        S.buyTime=Date.now(); S.buyPrice=refPrice || price;
       } else {
         delete S.positions[S.pair];
         S.buyTime=0; S.buyPrice=0; S.refPrice=0;
-        // Supprime du serveur
-        fetch('/api/positions',{method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({pair:S.pair,action:'close'})});
       }
       // Enregistre le trade (P&L sera connu apres fermeture position)
       S.trades.unshift({
@@ -904,6 +898,24 @@ async function fetchRealBalance(){
     walletEl.style.fontFamily='var(--mono)';walletEl.style.fontSize='10px';
     walletEl.innerHTML=`<div style="font-weight:700;margin-bottom:6px;color:var(--text)">Total: €${eur.toFixed(2)} (~$${total.toFixed(2)})</div>`+lines.join('');
     addLog(`💰 Solde Kraken: €${eur.toFixed(2)} EUR + ${xbt.toFixed(6)} BTC = ~$${total.toFixed(2)} total`,'info');
+    // Recuperer positions depuis serveur si on a du BTC
+    if(xbt >= 0.0001 && S.botActive){
+      try{
+        const rp = await fetch('/api/positions');
+        const pos = await rp.json();
+        if(!S.positions) S.positions = {};
+        for(const [pair, p] of Object.entries(pos)){
+          if(!S.positions[pair]){
+            S.positions[pair] = p;
+            addLog('Position recuperee: '+pair+' achat $'+parseFloat(p.price).toFixed(0),'info');
+          }
+        }
+        // Si pas de position serveur mais BTC present, utilise prix actuel
+        if(xbt >= 0.0001 && !S.positions['XBT/USD']){
+          S.positions['XBT/USD'] = {price: S.prices['XBT/USD']||0, volume: xbt.toFixed(5), time: Date.now()};
+        }
+      }catch(e){}
+    }
     // Refresh toutes les 30s en mode live
     if(S.mode==='live') setTimeout(fetchRealBalance, 30000);
   } catch(e){
@@ -1015,19 +1027,7 @@ window.addEventListener('load',()=>{
   genFake();drawChart();
   addLog('NEXUS TRADE v3 — Connexion au serveur en cours...','info');
   connectWS();
-  setTimeout(autoReconnectApi, 2000);
-  setTimeout(async ()=>{
-    try{
-      const r = await fetch('/api/positions');
-      const pos = await r.json();
-      if(Object.keys(pos).length > 0){
-        S.positions = pos;
-        for(const [pair, p] of Object.entries(pos)){
-          addLog('Position recuperee: '+pair+' | Prix achat: $'+parseFloat(p.price).toFixed(0)+' | Vol: '+p.volume,'info');
-        }
-      }
-    }catch(e){}
-  }, 4000);
+  setTimeout(autoReconnectApi, 2000); // Auto-reconnexion API
   setTimeout(checkServerApiStatus, 3000); // Verifie si API deja configuree sur Railway
   window.addEventListener('resize',()=>{if(S.chartData.length)drawChart();});
 });
