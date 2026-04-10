@@ -602,25 +602,8 @@ function toggleBot(){
     document.getElementById('oInfo').textContent='Multi-IND | '+S.mode.toUpperCase();
     toast('Bot IA démarré 🧠','ok','🤖');
     addLog(`Bot démarré. Confirmation min: ${document.getElementById('pConf').value}/5. Mode: ${S.mode.toUpperCase()}`,'info');
-    runBotCycle();
+    setTimeout(runBotCycle, 2000);
     S.botTimer=setInterval(runBotCycle,30000);
-    // Initialise les positions au demarrage du bot
-    setTimeout(async ()=>{
-      if(!S.positions) S.positions = {};
-      try{
-        const rp = await fetch('/api/positions');
-        const pos = await rp.json();
-        for(const [pair,p] of Object.entries(pos)){
-          S.positions[pair]=p;
-          addLog('Position serveur: '+pair+' @ $'+parseFloat(p.price).toFixed(0),'info');
-        }
-      }catch(e){}
-      // Si BTC present sans position connue
-      if((S.realBtc||0)>=0.0001 && !S.positions['XBT/USD']){
-        S.positions['XBT/USD']={price:S.prices['XBT/USD']||0,volume:(S.realBtc).toFixed(5),time:Date.now()};
-        addLog('Position BTC initialisee @ $'+(S.prices['XBT/USD']||0).toFixed(0),'info');
-      }
-    },1000);
   } else {
     clearInterval(S.botTimer);S.botTimer=null;S.botActive=false;
     orb.className='orb';
