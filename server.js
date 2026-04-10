@@ -197,6 +197,21 @@ app.post('/api/config', (req, res) => {
 // Prix actuels
 app.get('/api/prices', (req, res) => res.json(latestPrices));
 
+// Sauvegarder/recuperer positions
+app.post('/api/positions', (req, res) => {
+  const { pair, price, volume, action } = req.body;
+  if(action === 'open'){
+    serverPositions[pair] = { price, volume, time: Date.now() };
+    console.log('[POSITION] Ouverte:', pair, price, volume);
+  } else if(action === 'close'){
+    delete serverPositions[pair];
+    console.log('[POSITION] Fermee:', pair);
+  }
+  res.json({ ok: true, positions: serverPositions });
+});
+
+app.get('/api/positions', (req, res) => res.json(serverPositions));
+
 // OHLC (bougies graphique) — vraies données Kraken
 app.get('/api/ohlc/:pair/:interval', async (req, res) => {
   try {
