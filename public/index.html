@@ -604,6 +604,23 @@ function toggleBot(){
     addLog(`Bot démarré. Confirmation min: ${document.getElementById('pConf').value}/5. Mode: ${S.mode.toUpperCase()}`,'info');
     runBotCycle();
     S.botTimer=setInterval(runBotCycle,30000);
+    // Initialise les positions au demarrage du bot
+    setTimeout(async ()=>{
+      if(!S.positions) S.positions = {};
+      try{
+        const rp = await fetch('/api/positions');
+        const pos = await rp.json();
+        for(const [pair,p] of Object.entries(pos)){
+          S.positions[pair]=p;
+          addLog('Position serveur: '+pair+' @ $'+parseFloat(p.price).toFixed(0),'info');
+        }
+      }catch(e){}
+      // Si BTC present sans position connue
+      if((S.realBtc||0)>=0.0001 && !S.positions['XBT/USD']){
+        S.positions['XBT/USD']={price:S.prices['XBT/USD']||0,volume:(S.realBtc).toFixed(5),time:Date.now()};
+        addLog('Position BTC initialisee @ $'+(S.prices['XBT/USD']||0).toFixed(0),'info');
+      }
+    },1000);
   } else {
     clearInterval(S.botTimer);S.botTimer=null;S.botActive=false;
     orb.className='orb';
@@ -898,24 +915,6 @@ async function fetchRealBalance(){
     walletEl.style.fontFamily='var(--mono)';walletEl.style.fontSize='10px';
     walletEl.innerHTML=`<div style="font-weight:700;margin-bottom:6px;color:var(--text)">Total: €${eur.toFixed(2)} (~$${total.toFixed(2)})</div>`+lines.join('');
     addLog(`💰 Solde Kraken: €${eur.toFixed(2)} EUR + ${xbt.toFixed(6)} BTC = ~$${total.toFixed(2)} total`,'info');
-    // Recuperer positions depuis serveur si on a du BTC
-    if(xbt >= 0.0001 && S.botActive){
-      try{
-        const rp = await fetch('/api/positions');
-        const pos = await rp.json();
-        if(!S.positions) S.positions = {};
-        for(const [pair, p] of Object.entries(pos)){
-          if(!S.positions[pair]){
-            S.positions[pair] = p;
-            addLog('Position recuperee: '+pair+' achat $'+parseFloat(p.price).toFixed(0),'info');
-          }
-        }
-        // Si pas de position serveur mais BTC present, utilise prix actuel
-        if(xbt >= 0.0001 && !S.positions['XBT/USD']){
-          S.positions['XBT/USD'] = {price: S.prices['XBT/USD']||0, volume: xbt.toFixed(5), time: Date.now()};
-        }
-      }catch(e){}
-    }
     // Refresh toutes les 30s en mode live
     if(S.mode==='live') setTimeout(fetchRealBalance, 30000);
   } catch(e){
