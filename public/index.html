@@ -763,8 +763,10 @@ async function executeTrade(type,score=3){
       let volume;
       if(type === 'BUY'){
         // Achat: utilise exactement la mise configuree en $
-        const amountEur = amount / (S.prices['EUR/USD'] || 1.08);
-        volume = Math.max(0.0001, (amountEur / eurPrice)).toFixed(5);
+        const eurRate = S.prices['EUR/USD'] || 1.08;
+        const amountEur = amount / eurRate;
+        const minVol = S.pair.includes('XBT') ? 0.0001 : 0.001;
+        volume = Math.max(minVol, (amountEur / eurPrice)).toFixed(5);
       } else {
         // Vente: vend le volume correspondant a la mise
         // Utilise S.positions pour savoir combien on a acheté sur cette paire
