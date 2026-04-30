@@ -49,8 +49,8 @@ function checkReset() {
 // ════════════════════════════════════════════════════════════
 // KRAKEN REST POLLING — Prix toutes les 5s (compatible Railway)
 // ════════════════════════════════════════════════════════════
-const PAIRS = ['XBTUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'ADAUSD'];
-const PAIR_MAP = {'XXBTZUSD':'XBT/USD','XETHZUSD':'ETH/USD','SOLUSD':'SOL/USD','XXRPZUSD':'XRP/USD','ADAUSD':'ADA/USD'};
+const PAIRS = ['XBTUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'ADAUSD', 'DOTUSD', 'LINKUSD', 'AVAXUSD', 'EURUSD'];
+const PAIR_MAP = {'XXBTZUSD':'XBT/USD','XETHZUSD':'ETH/USD','SOLUSD':'SOL/USD','XXRPZUSD':'XRP/USD','ADAUSD':'ADA/USD','DOTUSD':'DOT/USD','XDOTZUSD':'DOT/USD','LINKUSD':'LINK/USD','AVAXUSD':'AVAX/USD','ZEURZUSD':'EUR/USD','EURUSD':'EUR/USD'};
 
 async function pollKrakenPrices() {
   try {
@@ -65,7 +65,7 @@ async function pollKrakenPrices() {
       const high   = parseFloat(ticker.h[1]);
       const low    = parseFloat(ticker.l[1]);
       const open   = parseFloat(ticker.o[1]);
-      const change = ((price - open) / open) * 100;
+      const change = open > 0 ? ((price - open) / open) * 100 : 0;
       latestPrices[pair] = { price, ask, bid, vol, high, low, change };
       const payload = JSON.stringify({ type: 'price', pair, price, ask, bid, vol, high, low, change });
       frontendClients.forEach(client => {
