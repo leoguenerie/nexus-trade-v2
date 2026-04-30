@@ -712,6 +712,7 @@ async function runBotCycle(){
     S.pair = bestPair.pair; S.kpair = bestPair.kpair;
     sEl.textContent = 'ACHETER'; sEl.style.color = 'var(--green)'; sEl.style.fontSize = '11px';
     document.getElementById('sSigP').textContent = bestPair.pair+' '+bestScore+'/5';
+    if(bestPair.pair !== savedPair){ S.pair=bestPair.pair; S.kpair=bestPair.kpair; loadOHLC(); }
     addLog('SCANNER → '+bestPair.pair+' ['+bestScore+'/5] '+bestPair.sig.reason,'info');
     await executeTrade('BUY', bestScore);
     // Met a jour les boutons visuellement
@@ -758,12 +759,12 @@ async function executeTrade(type,score=3){
         'LINK/USD':'LINKEUR','AVAX/USD':'AVAXEUR'
       };
       const krakenPair = pairMap[S.pair] || 'XBTEUR';
-      const eurRate = S.prices['EUR/USD'] || 1.08;
+      const eurRate = S.prices['EUR/USD'] || S.krakenData['EUR/USD']?.price || 1.08;
       const eurPrice = price / eurRate;
       let volume;
       if(type === 'BUY'){
         // Achat: utilise exactement la mise configuree en $
-        const eurRate = S.prices['EUR/USD'] || 1.08;
+        const eurRate = S.prices['EUR/USD'] || S.krakenData['EUR/USD']?.price || 1.08;
         const amountEur = amount / eurRate;
         const minVol = S.pair.includes('XBT') ? 0.0001 : 0.001;
         volume = Math.max(minVol, (amountEur / eurPrice)).toFixed(5);
@@ -805,7 +806,7 @@ async function executeTrade(type,score=3){
       // Gestion multi-positions par paire
       if(!S.positions) S.positions = {};
       if(type==='BUY'){
-        S.positions[S.pair] = {price: refPrice || price, volume, time: Date.now()};
+        S.positions[S.pair] = {price: price, volume, time: Date.now()};
         S.buyTime=Date.now(); S.buyPrice=refPrice || price;
       } else {
         delete S.positions[S.pair];
