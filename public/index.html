@@ -799,14 +799,14 @@ async function executeTrade(type,score=3){
 
       // Ordre passé avec succès
       const txid = data.txid ? data.txid[0] : 'OK';
-      toast(`${type==='BUY'?'🟢':'🔴'} ORDRE RÉEL PASSÉ — ${type} ${volume} ${S.pair.replace('/USD','')} — ID: ${txid}`,'ok','⚡');
+      toast(`${type==='BUY'?'🟢':'🔴'} ORDRE RÉEL PASSÉ — ${type} ${volume} BTC — ID: ${txid}`,'ok','⚡');
       addLog(`✅ ORDRE LIVE EXÉCUTÉ: ${type} ${volume} BTC @ ~$${price.toFixed(0)} | ID: ${txid} | Frais: ~$${fees.toFixed(3)}`,'info');
 
       // Gestion multi-positions par paire
       if(!S.positions) S.positions = {};
       if(type==='BUY'){
-        S.positions[S.pair] = {price: price, volume, time: Date.now()};
-        S.buyTime=Date.now(); S.buyPrice=price;
+        S.positions[S.pair] = {price: refPrice || price, volume, time: Date.now()};
+        S.buyTime=Date.now(); S.buyPrice=refPrice || price;
       } else {
         delete S.positions[S.pair];
         S.buyTime=0; S.buyPrice=0; S.refPrice=0;
