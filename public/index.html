@@ -939,13 +939,16 @@ async function checkServerApiStatus(){
   try {
     const r = await fetch('/api/health');
     const data = await r.json();
-    if(data.apiConfigured && !S.connected){
+    if(data.apiConfigured){
       S.connected = true;
       document.getElementById('apiBadge').className = 'abadge ok';
-      addLog('API Kraken detectee sur le serveur Railway', 'info');
-      fetchRealBalance();
-      // Ferme la modal si ouverte
+      document.getElementById('apiTxt').textContent = 'Kraken connecte';
+      document.getElementById('conBtn').textContent = '🔄 Reconnecter';
+      document.getElementById('mainBtn').disabled = false;
+      document.getElementById('botBtn').disabled = false;
+      addLog('API Kraken detectee sur le serveur', 'info');
       closeModal();
+      fetchRealBalance();
     }
   } catch(e) {}
 }
