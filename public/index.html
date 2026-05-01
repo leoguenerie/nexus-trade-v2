@@ -879,7 +879,20 @@ async function fetchRealBalance(){
     const eur  = parseFloat(data.ZEUR || data.EUR || 0);
     const usd  = parseFloat(data.ZUSD || data.USD || 0);
     const xbt  = parseFloat(data.XXBT || data.XBT || 0);
-    S.realBtc = xbt; // Stocke le vrai solde BTC pour le bot
+    S.realBtc = xbt;
+    // Detecter aussi ETH et autres cryptos dans les positions
+    if(!S.positions) S.positions = {};
+    const cryptoBalances = {
+      'XBT/USD': xbt, 'ETH/USD': eth
+    };
+    for(const [pair, bal] of Object.entries(cryptoBalances)){
+      const minBal = pair.includes('XBT') ? 0.0001 : 0.001;
+      if(bal >= minBal && !S.positions[pair]){
+        S.positions[pair] = {price: S.prices[pair]||0, volume: bal.toFixed(5), time: Date.now()};
+        addLog('Position '+pair+' recuperee: '+bal.toFixed(5),'info');
+      }
+      if(bal < minBal && S.positions[pair]) delete S.positions[pair];
+    }
     const eth  = parseFloat(data.XETH || data.ETH || 0);
     const xrp  = parseFloat(data.XXRP || data.XRP || 0);
     const sol  = parseFloat(data.SOL  || 0);
