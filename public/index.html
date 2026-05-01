@@ -869,7 +869,8 @@ function applyMode(m){
   }
 }
 
-async function fetchRealBalance(){
+async function fetchRealBalance(retry=0){
+  if(retry > 3) return; // max 3 essais
   try {
     const r = await fetch('/api/balance');
     if(!r.ok) throw new Error();
@@ -929,7 +930,12 @@ async function fetchRealBalance(){
   } catch(e){
     document.getElementById('sPort').textContent='Erreur API';
     document.getElementById('wallet').textContent='Impossible de récupérer le solde';
-    addLog('Erreur récupération solde Kraken. Vérifie les clés API.','info');
+    if(retry < 3){
+      addLog('Retry solde dans 10s... ('+(retry+1)+'/3)','info');
+      setTimeout(()=>fetchRealBalance(retry+1), 10000);
+    } else {
+      addLog('Erreur récupération solde Kraken. Vérifie les clés API.','info');
+    }
   }
 }
 
