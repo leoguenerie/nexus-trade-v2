@@ -974,7 +974,7 @@ function autoReconnectApi(){
       document.getElementById('apiBadge').className='abadge ok';
       const kEl=document.getElementById('ikey'); if(kEl) kEl.value=k;
       addLog('API reconnectée automatiquement','info');
-      fetchRealBalance();
+      if(S.mode==='live') fetchRealBalance();
     }
   }catch(e){}
 }
