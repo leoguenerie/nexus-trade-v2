@@ -1,11 +1,9 @@
 {
-  "name": "nexus-trade-v3",
-  "version": "3.0.0",
-  "description": "Bot de trading crypto pro multi-paires",
+  "name": "nexus-trade-v4",
+  "version": "4.0.0",
+  "description": "Bot de trading crypto pro multi-paires - refonte complete",
   "main": "server.js",
-  "scripts": {
-    "start": "node server.js"
-  },
+  "scripts": { "start": "node server.js" },
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^16.0.3",
