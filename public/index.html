@@ -263,6 +263,14 @@ header{display:flex;align-items:center;justify-content:space-between;padding:12p
             <button class="ptab" onclick="setPair(this,'DOT/USD','DOTUSD')">DOT</button>
             <button class="ptab" onclick="setPair(this,'LINK/USD','LINKUSD')">LINK</button>
             <button class="ptab" onclick="setPair(this,'AVAX/USD','AVAXUSD')">AVAX</button>
+            <button class="ptab" onclick="setPair(this,'LTC/USD','LTCUSD')">LTC</button>
+            <button class="ptab" onclick="setPair(this,'BCH/USD','BCHUSD')">BCH</button>
+            <button class="ptab" onclick="setPair(this,'ATOM/USD','ATOMUSD')">ATOM</button>
+            <button class="ptab" onclick="setPair(this,'NEAR/USD','NEARUSD')">NEAR</button>
+            <button class="ptab" onclick="setPair(this,'UNI/USD','UNIUSD')">UNI</button>
+            <button class="ptab" onclick="setPair(this,'ETC/USD','ETCUSD')">ETC</button>
+            <button class="ptab" onclick="setPair(this,'XLM/USD','XLMUSD')">XLM</button>
+            <button class="ptab" onclick="setPair(this,'DOGE/USD','XDGUSD')">DOGE</button>
           </div>
           <div style="display:flex;align-items:center;gap:10px">
             <div class="phdr"><div class="pbig" id="pBig">—</div><div class="pchg" id="pChg" style="color:var(--muted)">—</div></div>
@@ -308,6 +316,14 @@ const PAIRS_CONFIG = [
   { pair:'DOT/USD',  kpair:'DOTUSD',  order:'DOTEUR',  minVol:0.1,    dp:3 },
   { pair:'LINK/USD', kpair:'LINKUSD', order:'LINKEUR', minVol:0.1,    dp:3 },
   { pair:'AVAX/USD', kpair:'AVAXUSD', order:'AVAXEUR', minVol:0.01,   dp:4 },
+  { pair:'LTC/USD',  kpair:'LTCUSD',  order:'LTCEUR',  minVol:0.01,   dp:4 },
+  { pair:'BCH/USD',  kpair:'BCHUSD',  order:'BCHEUR',  minVol:0.001,  dp:5 },
+  { pair:'ATOM/USD', kpair:'ATOMUSD', order:'ATOMEUR', minVol:0.1,    dp:3 },
+  { pair:'NEAR/USD', kpair:'NEARUSD', order:'NEAREUR', minVol:0.5,    dp:2 },
+  { pair:'UNI/USD',  kpair:'UNIUSD',  order:'UNIEUR',  minVol:0.1,    dp:3 },
+  { pair:'ETC/USD',  kpair:'ETCUSD',  order:'ETCEUR',  minVol:0.05,   dp:3 },
+  { pair:'XLM/USD',  kpair:'XLMUSD',  order:'XLMEUR',  minVol:5,      dp:1 },
+  { pair:'DOGE/USD', kpair:'XDGUSD',  order:'XDGEUR',  minVol:5,      dp:1 },
 ];
 function pairCfg(pair){ return PAIRS_CONFIG.find(p=>p.pair===pair) || PAIRS_CONFIG[0]; }
 
@@ -315,7 +331,10 @@ function pairCfg(pair){ return PAIRS_CONFIG.find(p=>p.pair===pair) || PAIRS_CONF
 const BALANCE_KEYS = {
   'XBT/USD':['XXBT','XBT'], 'ETH/USD':['XETH','ETH'], 'SOL/USD':['SOL'],
   'XRP/USD':['XXRP','XRP'], 'ADA/USD':['ADA'], 'DOT/USD':['DOT'],
-  'LINK/USD':['LINK'], 'AVAX/USD':['AVAX'],
+  'LINK/USD':['LINK'], 'AVAX/USD':['AVAX'], 'LTC/USD':['XLTC','LTC'],
+  'BCH/USD':['BCH'], 'ATOM/USD':['ATOM'], 'NEAR/USD':['NEAR'],
+  'UNI/USD':['UNI'], 'ETC/USD':['XETC','ETC'], 'XLM/USD':['XXLM','XLM'],
+  'DOGE/USD':['XXDG','XDG','DOGE'],
 };
 
 const S = {
@@ -571,6 +590,30 @@ function calcVol(vols){
   if(r>oa*1.4)return'ÉLEVÉ';if(r<oa*0.6)return'FAIBLE';return'NORMAL';
 }
 
+// ATR% (Average True Range en % du prix) — mesure la volatilite reelle d'une paire
+function computeATRPct(candles,period=14){
+  if(!candles||candles.length<period+1) return null;
+  const trs=[];
+  for(let i=1;i<candles.length;i++){
+    const c=candles[i],prev=candles[i-1];
+    trs.push(Math.max(c.h-c.l, Math.abs(c.h-prev.c), Math.abs(c.l-prev.c)));
+  }
+  const recent=trs.slice(-period);
+  const atr=recent.reduce((a,b)=>a+b,0)/recent.length;
+  const lastClose=candles[candles.length-1].c;
+  return lastClose>0 ? (atr/lastClose)*100 : null;
+}
+// Calcule un SL/TP adapte a la volatilite de la paire (relatif a BTC comme reference)
+function getEffectiveStops(pair, baseSL, baseTP){
+  const cache=S.chartDataByPair[pair];
+  const refCache=S.chartDataByPair['XBT/USD'];
+  const atrPct=cache?computeATRPct(cache.candles):null;
+  const refAtrPct=refCache?computeATRPct(refCache.candles):null;
+  if(!atrPct || !refAtrPct || refAtrPct<=0) return {sl:baseSL, tp:baseTP, mult:1};
+  const mult=Math.max(0.6, Math.min(2.5, atrPct/refAtrPct));
+  return {sl:baseSL*mult, tp:baseTP*mult, mult};
+}
+
 // Indicateurs purs a partir d'un tableau de bougies (pour une paire donnee)
 function computeIndicatorsFromCandles(candles){
   if(!candles||!candles.length) return null;
@@ -591,7 +634,7 @@ function computeScoreFromIndicators(ind){
   return { dir, score: Math.min(5,Math.round(max)) };
 }
 // Signal complet (action+raison) pour une paire, a partir de son cache de bougies
-function computeSignalForPair(pair){
+function computeSignalForPair(pair, minConfOverride){
   const cache=S.chartDataByPair[pair];
   if(!cache||!cache.candles||!cache.candles.length) return {action:'ATTENDRE',score:0,reason:'Pas de donnees'};
   // patch le dernier close avec le prix temps reel le plus recent
@@ -601,7 +644,7 @@ function computeSignalForPair(pair){
   const ind=computeIndicatorsFromCandles(candles);
   if(!ind) return {action:'ATTENDRE',score:0,reason:'Pas assez de donnees'};
   const {dir,score}=computeScoreFromIndicators(ind);
-  const minConf=parseInt(document.getElementById('pConf').value)||3;
+  const minConf=minConfOverride!==undefined?minConfOverride:(parseInt(document.getElementById('pConf').value)||3);
   const {R,M,B,T,V}=ind;
   if(dir==='BUY' && score>=minConf){
     const why=[];
@@ -720,26 +763,39 @@ async function runBotCycle(){
   }
 
   // ── MODE LIVE — scanner multi-paires ─────────────────────
-  const tp=parseFloat(document.getElementById('pTP').value)||1.5;
-  const sl=parseFloat(document.getElementById('pSL').value)||1.0;
-  const minConf=parseInt(document.getElementById('pConf').value)||3;
+  const baseTp=parseFloat(document.getElementById('pTP').value)||1.5;
+  const baseSl=parseFloat(document.getElementById('pSL').value)||1.0;
+  const baseTsl=parseFloat(document.getElementById('pTSL').value)||1.5;
+  const baseMinConf=parseInt(document.getElementById('pConf').value)||3;
   if(!S.positions) S.positions={};
 
   // S'assure que les bougies de chaque paire sont chargees (cache 90s)
   await Promise.all(PAIRS_CONFIG.map(cfg=>ensureChartData(cfg.pair,cfg.kpair)));
 
-  // 1. Gerer TP/SL sur les positions ouvertes
+  // Seuil de confirmation adaptatif — se durcit si le taux de reussite recent baisse
+  const minConf=getAdaptiveMinConf(baseMinConf);
+
+  // 1. Gerer les positions ouvertes : SL fixe (protection) + trailing stop (laisse courir les gains)
   for(const cfg of PAIRS_CONFIG){
     const pos=S.positions[cfg.pair];
     if(!pos || !pos.price) continue;
     const cur=S.prices[cfg.pair];
     if(!cur) continue;
+
+    // Stops adaptes a la volatilite reelle de la paire (ATR vs BTC)
+    const eff=getEffectiveStops(cfg.pair, baseSl, baseTp);
+
+    // Suivi du plus haut atteint depuis l'achat (pour le trailing stop)
+    if(pos.peak===undefined || cur>pos.peak) pos.peak=cur;
     const pct=(cur-pos.price)/pos.price*100;
-    if(pct>=tp){
-      addLog('TAKE PROFIT +'+pct.toFixed(2)+'% → VENTE '+cfg.pair,'info');
+    const peakPct=(pos.peak-pos.price)/pos.price*100;
+    const giveback=pos.peak>0 ? (pos.peak-cur)/pos.peak*100 : 0;
+
+    if(pct<=-eff.sl){
+      addLog('STOP LOSS '+pct.toFixed(2)+'% (ATR x'+eff.mult.toFixed(2)+') → VENTE '+cfg.pair,'info');
       await executeTrade('SELL',5,cfg.pair);
-    } else if(pct<=-sl){
-      addLog('STOP LOSS '+pct.toFixed(2)+'% → VENTE '+cfg.pair,'info');
+    } else if(peakPct>=eff.tp && giveback>=baseTsl){
+      addLog('TRAILING STOP: pic +'+peakPct.toFixed(2)+'%, repli -'+giveback.toFixed(2)+'% → VENTE '+cfg.pair,'info');
       await executeTrade('SELL',5,cfg.pair);
     }
   }
@@ -749,7 +805,7 @@ async function runBotCycle(){
   for(const cfg of PAIRS_CONFIG){
     if(S.positions[cfg.pair]) continue;
     if(!S.prices[cfg.pair]) continue;
-    const sig=computeSignalForPair(cfg.pair);
+    const sig=computeSignalForPair(cfg.pair, minConf);
     if(sig.action==='ACHETER' && sig.score>bestScore){ bestScore=sig.score; best={...cfg,sig}; }
   }
 
@@ -766,9 +822,23 @@ async function runBotCycle(){
       updatePriceHdr(); drawChart(); runIndicators();
     }
   } else {
-    updateSignalUI(openCount>0?(openCount+' pos.'):'ATTENTE', 'Scanner: '+bestScore+'/5 max');
-    addLog('Scanner: '+openCount+' position(s) | meilleur signal: '+bestScore+'/5','info');
+    updateSignalUI(openCount>0?(openCount+' pos.'):'ATTENTE', 'Scanner: '+bestScore+'/5 max (conf:'+minConf+')');
+    addLog('Scanner: '+openCount+' position(s) | meilleur signal: '+bestScore+'/5 | confirmation requise: '+minConf+'/5','info');
   }
+}
+
+// Seuil de confirmation adaptatif base sur le taux de reussite des 10 derniers trades LIVE clotures
+function getAdaptiveMinConf(baseMinConf){
+  const closed=S.trades.filter(t=>t.live && t.type==='SELL' && typeof t.pnl==='number').slice(0,10);
+  if(closed.length<5) return baseMinConf;
+  const wins=closed.filter(t=>t.pnl>0).length;
+  const wr=wins/closed.length;
+  if(wr<0.35){
+    const adj=Math.min(5,baseMinConf+1);
+    if(adj!==baseMinConf) addLog('Taux de reussite recent faible ('+Math.round(wr*100)+'%) → confirmation durcie a '+adj+'/5','info');
+    return adj;
+  }
+  return baseMinConf;
 }
 
 function floorTo(num,dp){ const f=Math.pow(10,dp); return Math.floor(num*f)/f; }
@@ -832,8 +902,17 @@ async function executeTrade(type, score=3, targetPair=null){
       // Frais reels appliques uniquement maintenant (ordre confirme reussi)
       const fees=(amount*0.0026*2);
       S.totalFees+=fees;
+
+      // Calcule le vrai P&L a la vente, en comparant au prix d'achat connu
+      let realPnl=0;
+      if(type==='SELL' && S.positions[tradePair]){
+        const entry=S.positions[tradePair].price;
+        const vol=parseFloat(volume);
+        if(entry>0) realPnl=(price-entry)*vol - fees;
+      }
+
       toast(`${type==='BUY'?'🟢':'🔴'} ORDRE RÉEL PASSÉ — ${type} ${volume} ${symbol} — ID: ${txid}`,'ok','⚡');
-      addLog(`✅ ORDRE LIVE EXÉCUTÉ: ${type} ${volume} ${symbol} @ ~$${price.toFixed(price<1?4:0)} | ID: ${txid} | Frais: ~$${fees.toFixed(3)}`,'info');
+      addLog(`✅ ORDRE LIVE EXÉCUTÉ: ${type} ${volume} ${symbol} @ ~$${price.toFixed(price<1?4:0)} | ID: ${txid} | Frais: ~$${fees.toFixed(3)}`+(type==='SELL'?` | P&L: ${realPnl>=0?'+':''}$${realPnl.toFixed(2)}`:''),'info');
 
       // Mise a jour des positions (locale + serveur)
       if(!S.positions) S.positions={};
@@ -845,11 +924,12 @@ async function executeTrade(type, score=3, targetPair=null){
         delete S.positions[tradePair];
         fetch('/api/positions',{method:'POST',headers:{'Content-Type':'application/json'},
           body:JSON.stringify({pair:tradePair, action:'close'})}).catch(()=>{});
+        S.pnl+=realPnl; if(realPnl<0) S.dailyLoss+=realPnl;
       }
 
       S.trades.unshift({
         time:new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',second:'2-digit'}),
-        type, pair:symbol, price:price.toFixed(price<1?4:2), pnl:0, fees, score, txid, live:true
+        type, pair:symbol, price:price.toFixed(price<1?4:2), pnl:realPnl, fees, score, txid, live:true
       });
       updateLossBar(); renderTrades(); updateStats(); if(tradePair===S.pair) drawChart();
       setTimeout(()=>fetchRealBalance(0), 4000);
@@ -1153,10 +1233,42 @@ function setTf(el,tf){
 }
 
 // ════════════════════════════════════════════════════════════
+// SAUVEGARDE DES REGLAGES (localStorage — persiste entre les sessions)
+// ════════════════════════════════════════════════════════════
+const SETTINGS_KEYS=['pAmt','pMax','pSL','pTP','pTSL','pConf','pML'];
+function saveSettings(){
+  try{
+    const obj={};
+    SETTINGS_KEYS.forEach(id=>{ const el=document.getElementById(id); if(el) obj[id]=el.value; });
+    localStorage.setItem('nexusSettings', JSON.stringify(obj));
+  }catch(e){}
+}
+function loadSettings(){
+  try{
+    const raw=localStorage.getItem('nexusSettings');
+    if(!raw) return;
+    const obj=JSON.parse(raw);
+    SETTINGS_KEYS.forEach(id=>{
+      const el=document.getElementById(id);
+      if(el && obj[id]!==undefined){
+        el.value=obj[id];
+        if(id==='pConf'){ /* select element, value assignment works directly */ }
+      }
+    });
+    addLog('Reglages restaures depuis la derniere session','info');
+  }catch(e){}
+}
+SETTINGS_KEYS.forEach(id=>{
+  const el=document.getElementById(id);
+  if(el) el.addEventListener('change', saveSettings);
+});
+
+// ════════════════════════════════════════════════════════════
 // DEMARRAGE
 // ════════════════════════════════════════════════════════════
 window.addEventListener('load',()=>{
   genFake();drawChart();
+  loadSettings();
   addLog('NEXUS TRADE v4 — Connexion au serveur en cours...','info');
   connectWS();
   setTimeout(autoReconnectApi,2000);

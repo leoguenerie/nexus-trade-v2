@@ -41,6 +41,14 @@ const PAIRS = [
   { display: 'DOT/USD',  kraken: 'DOTUSD',  order: 'DOTEUR',  minVol: 0.1    },
   { display: 'LINK/USD', kraken: 'LINKUSD', order: 'LINKEUR', minVol: 0.1    },
   { display: 'AVAX/USD', kraken: 'AVAXUSD', order: 'AVAXEUR', minVol: 0.01   },
+  { display: 'LTC/USD',  kraken: 'LTCUSD',  order: 'LTCEUR',  minVol: 0.01   },
+  { display: 'BCH/USD',  kraken: 'BCHUSD',  order: 'BCHEUR',  minVol: 0.001  },
+  { display: 'ATOM/USD', kraken: 'ATOMUSD', order: 'ATOMEUR', minVol: 0.1    },
+  { display: 'NEAR/USD', kraken: 'NEARUSD', order: 'NEAREUR', minVol: 0.5    },
+  { display: 'UNI/USD',  kraken: 'UNIUSD',  order: 'UNIEUR',  minVol: 0.1    },
+  { display: 'ETC/USD',  kraken: 'ETCUSD',  order: 'ETCEUR',  minVol: 0.05   },
+  { display: 'XLM/USD',  kraken: 'XLMUSD',  order: 'XLMEUR',  minVol: 5      },
+  { display: 'DOGE/USD', kraken: 'XDGUSD',  order: 'XDGEUR',  minVol: 5      },
 ];
 
 // Map ticker Kraken (reponse API) -> paire display
@@ -49,7 +57,8 @@ PAIRS.forEach(p => { TICKER_MAP[p.kraken] = p.display; });
 // Codes Kraken alternatifs (lettres X/Z) vus dans les reponses Ticker
 const TICKER_ALIASES = {
   'XXBTZUSD': 'XBT/USD', 'XETHZUSD': 'ETH/USD', 'XXRPZUSD': 'XRP/USD',
-  'XDOTZUSD': 'DOT/USD', 'XLTCZUSD': 'LTC/USD',
+  'XDOTZUSD': 'DOT/USD', 'XLTCZUSD': 'LTC/USD', 'XETCZUSD': 'ETC/USD',
+  'XXLMZUSD': 'XLM/USD', 'XXDGZUSD': 'DOGE/USD', 'BCHUSD': 'BCH/USD',
 };
 Object.assign(TICKER_MAP, TICKER_ALIASES);
 TICKER_MAP['EURUSD'] = 'EUR/USD';
