@@ -786,9 +786,6 @@ async function executeTrade(type, score=3, targetPair=null){
   const slPct=parseFloat(document.getElementById('pSL').value)/100;
   const tpPct=parseFloat(document.getElementById('pTP').value)/100;
   const tslPct=parseFloat(document.getElementById('pTSL').value)/100;
-  const fees=(amount*0.0026*2);
-  const slip=amount*(0.0002+Math.random()*0.0006);
-  S.totalFees+=fees+slip;
 
   if(S.mode==='live'){
     try{
@@ -799,7 +796,14 @@ async function executeTrade(type, score=3, targetPair=null){
       if(type==='BUY'){
         // Volume = montant en $ / prix en $ (independant de la devise de l'ordre)
         const safeAmount=amount*0.998; // marge pour frais/slippage
-        volume=Math.max(cfg.minVol, safeAmount/price).toFixed(cfg.dp);
+        const rawVol=Math.max(cfg.minVol, safeAmount/price);
+        const eurNeeded=rawVol*eurPrice;
+        // Verifie qu'on a assez d'EUR AVANT d'envoyer l'ordre (evite le spam d'echecs)
+        if((S.eurBalance||0) < eurNeeded*1.01){
+          addLog(`Pas assez d'EUR pour ${tradePair} (besoin ~€${eurNeeded.toFixed(2)}, dispo €${(S.eurBalance||0).toFixed(2)}) — ignore`,'info');
+          return;
+        }
+        volume=rawVol.toFixed(cfg.dp);
       } else {
         // Vend exactement ce qu'on detient sur cette paire
         const known=S.realBalances[tradePair] ?? (S.positions[tradePair]?S.positions[tradePair].volume:0);
@@ -825,6 +829,9 @@ async function executeTrade(type, score=3, targetPair=null){
 
       const txid=data.txid?data.txid[0]:'OK';
       const symbol=tradePair.replace('/USD','');
+      // Frais reels appliques uniquement maintenant (ordre confirme reussi)
+      const fees=(amount*0.0026*2);
+      S.totalFees+=fees;
       toast(`${type==='BUY'?'🟢':'🔴'} ORDRE RÉEL PASSÉ — ${type} ${volume} ${symbol} — ID: ${txid}`,'ok','⚡');
       addLog(`✅ ORDRE LIVE EXÉCUTÉ: ${type} ${volume} ${symbol} @ ~$${price.toFixed(price<1?4:0)} | ID: ${txid} | Frais: ~$${fees.toFixed(3)}`,'info');
 
@@ -854,6 +861,9 @@ async function executeTrade(type, score=3, targetPair=null){
 
   } else {
     // ── MODE DEMO : simulation ──────────────────────────────
+    const fees=(amount*0.0026*2);
+    const slip=amount*(0.0002+Math.random()*0.0006);
+    S.totalFees+=fees+slip;
     const win=Math.random()<(0.35+(score/5)*0.30);
     let pnlBrut=win?Math.max((Math.random()*tpPct-tslPct),(Math.random()*tpPct*0.55))*amount:-(Math.random()*slPct)*amount;
     const pnl=pnlBrut-fees-slip;
@@ -1002,6 +1012,7 @@ async function fetchRealBalance(retry=0){
 
     const eur=parseFloat(data.ZEUR||data.EUR||0);
     const usd=parseFloat(data.ZUSD||data.USD||0);
+    S.eurBalance=eur;
     const eurUsd=S.prices['EUR/USD']||1.08;
 
     if(!S.positions) S.positions={};
