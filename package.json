@@ -1,13 +1,15 @@
 {
-  "name": "nexus-trade-v4",
-  "version": "4.0.0",
-  "description": "Bot de trading crypto pro multi-paires - refonte complete",
+  "name": "nexus-trade-v5",
+  "version": "5.0.0",
+  "description": "Hub de trading — Kraken Bot + Solana Sniper",
   "main": "server.js",
   "scripts": { "start": "node server.js" },
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^16.0.3",
     "express": "^4.18.2",
-    "ws": "^8.13.0"
+    "ws": "^8.13.0",
+    "@solana/web3.js": "^1.95.3",
+    "bs58": "^5.0.0"
   }
 }
