@@ -866,8 +866,7 @@ async function fetchRealBalance(retry=0){
     for(const cfg of PAIRS_CONFIG){
       let bal=0;for(const key of BALANCE_KEYS[cfg.pair]||[]){if(data[key]){bal=parseFloat(data[key]);break;}}
       S.realBalances[cfg.pair]=bal;const price=S.prices[cfg.pair]||0;total+=bal*price;
-      if(bal>=cfg.minVol){lines.push({pair:cfg.pair,bal,usd:bal*price});if(!S.positions[cfg.pair]){S.positions[cfg.pair]={price:price||0,volume:bal,peak:price||0,time:Date.now(),estimated:true};addLog('Position '+cfg.pair+' détectée: '+bal.toFixed(cfg.dp)+(price?' @ ~$'+price.toFixed(price<1?4:0):''),'info');}}}
-      else if(S.positions[cfg.pair]&&S.positions[cfg.pair].estimated){delete S.positions[cfg.pair];}
+      if(bal>=cfg.minVol){lines.push({pair:cfg.pair,bal,usd:bal*price});if(!S.positions[cfg.pair]){S.positions[cfg.pair]={price:price||0,volume:bal,peak:price||0,time:Date.now(),estimated:true};addLog('Position '+cfg.pair+' détectée: '+bal.toFixed(cfg.dp)+(price?' @ ~$'+price.toFixed(price<1?4:0):''),'info');}} else if(S.positions[cfg.pair]&&S.positions[cfg.pair].estimated){delete S.positions[cfg.pair];}
     }
     S.portfolio=total;document.getElementById('sPort').textContent='€'+eur.toFixed(2)+' / $'+total.toFixed(2);document.getElementById('sPortS').textContent='LIVE (Kraken)';
     // Wallet panel
